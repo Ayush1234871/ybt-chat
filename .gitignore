@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.env.local
+.DS_Store
+*.local
+dist-ssr
+*.ps1
+.vercel
+.vscode
+.idea
+build
