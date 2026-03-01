@@ -1,8 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabase'
 import { useAuthStore } from './store/useAuthStore'
 import { useThemeStore } from './store/useThemeStore'
+
+// Components
+import SplashScreen from './components/common/SplashScreen'
 
 // Layouts
 import AppShell from './components/layout/AppShell'
@@ -22,6 +25,15 @@ import Dashboard from './pages/admin/Dashboard'
 function App() {
   const { setSession, setUser, setProfile, user } = useAuthStore()
   const { theme } = useThemeStore()
+  const [showSplash, setShowSplash] = useState(true)
+
+  // Handle Splash Screen
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false)
+    }, 3500)
+    return () => clearTimeout(timer)
+  }, [])
 
   // Apply dark mode class to document
   useEffect(() => {
@@ -129,6 +141,10 @@ function App() {
       }
     }
   }, [user, setProfile])
+
+  if (showSplash) {
+    return <SplashScreen />
+  }
 
   return (
     <BrowserRouter>

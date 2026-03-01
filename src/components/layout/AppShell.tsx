@@ -29,7 +29,7 @@ export default function AppShell() {
     return (
         <div className="flex h-screen w-full bg-background overflow-hidden relative">
             {/* Desktop Sidebar */}
-            <div className="hidden md:flex flex-col w-64 border-r border-border bg-card/50 shrink-0">
+            <div className="hidden md:flex flex-col w-64 border-r border-border glass shrink-0">
                 <Sidebar />
             </div>
 
@@ -39,7 +39,7 @@ export default function AppShell() {
             </main>
 
             {/* Mobile Bottom Navigation */}
-            <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 border-t border-border bg-background/90 backdrop-blur-md z-50">
+            <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 border-t border-border glass-dark backdrop-blur-xl z-50">
                 <BottomNav />
             </div>
         </div>

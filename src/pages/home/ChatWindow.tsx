@@ -23,6 +23,9 @@ export default function ChatWindow() {
     const [showEmojiPicker, setShowEmojiPicker] = useState(false)
     const [isMenuOpen, setIsMenuOpen] = useState(false)
     const [isActionLoading, setIsActionLoading] = useState(false)
+    const [isTyping, setIsTyping] = useState(false)
+    const [otherIsTyping, setOtherIsTyping] = useState(false)
+    const typingTimeoutRef = useRef<any>(null)
     const menuRef = useRef<HTMLDivElement>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -158,6 +161,11 @@ export default function ChatWindow() {
                         .then()
                 }
             })
+            .on('broadcast', { event: 'typing' }, ({ payload }) => {
+                if (payload.userId !== user.id) {
+                    setOtherIsTyping(payload.isTyping)
+                }
+            })
             .subscribe()
 
         // Subscribe to block changes
@@ -186,6 +194,7 @@ export default function ChatWindow() {
         const textToSend = newMessage.trim()
         setNewMessage('')
         setShowEmojiPicker(false)
+        handleTyping(false) // Stop typing on send
 
         try {
             const { error } = await supabase
@@ -381,6 +390,32 @@ export default function ChatWindow() {
 
 
 
+    const handleTyping = (isTyping: boolean) => {
+        if (!chatId || !user) return
+
+        supabase.channel(`chat:${chatId}`).send({
+            type: 'broadcast',
+            event: 'typing',
+            payload: { userId: user.id, isTyping }
+        })
+    }
+
+    const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setNewMessage(e.target.value)
+
+        if (!isTyping) {
+            setIsTyping(true)
+            handleTyping(true)
+        }
+
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+
+        typingTimeoutRef.current = setTimeout(() => {
+            setIsTyping(false)
+            handleTyping(false)
+        }, 3000)
+    }
+
     if (isLoading) {
         return (
             <div className="flex h-full items-center justify-center bg-background">
@@ -390,9 +425,13 @@ export default function ChatWindow() {
     }
 
     return (
-        <div className="flex flex-col h-full bg-background mt-safe">
+        <div className="flex flex-col h-full bg-background mt-safe overflow-hidden relative">
+            {/* Background Glow */}
+            <div className="absolute top-0 right-0 w-[300px] h-[300px] bg-primary/5 rounded-full blur-[100px] -z-10 animate-pulse"></div>
+            <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-sky-500/5 rounded-full blur-[100px] -z-10"></div>
+
             {/* Header */}
-            <div className="flex items-center p-4 border-b bg-card/50 shrink-0">
+            <div className="flex items-center p-4 border-b glass shrink-0 z-10">
                 <Button variant="ghost" size="icon" className="mr-2" onClick={() => navigate(-1)}>
                     <ArrowLeft className="h-5 w-5" />
                 </Button>
@@ -415,8 +454,19 @@ export default function ChatWindow() {
                     </div>
                     <div className="min-w-0">
                         <h2 className="font-semibold text-foreground truncate">{otherParticipant?.full_name || 'Unknown User'}</h2>
-                        <p className="text-xs text-muted-foreground truncate">
-                            {otherParticipant?.is_online ? 'Online' : (otherParticipant?.last_seen ? `Last seen ${format(new Date(otherParticipant.last_seen), 'MMM d, HH:mm')}` : '')}
+                        <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
+                            {otherIsTyping ? (
+                                <span className="text-primary font-medium flex items-center gap-1 anim-pulse">
+                                    <span className="flex gap-0.5">
+                                        <span className="w-1 h-1 bg-primary rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                                        <span className="w-1 h-1 bg-primary rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                                        <span className="w-1 h-1 bg-primary rounded-full animate-bounce"></span>
+                                    </span>
+                                    typing...
+                                </span>
+                            ) : (
+                                otherParticipant?.is_online ? 'Online' : (otherParticipant?.last_seen ? `Last seen ${format(new Date(otherParticipant.last_seen), 'MMM d, HH:mm')}` : '')
+                            )}
                         </p>
                     </div>
                 </div>
@@ -560,7 +610,7 @@ export default function ChatWindow() {
             </div>
 
             {/* Input Area or Block Message */}
-            <div className="p-3 border-t bg-card/50 shrink-0 relative">
+            <div className="p-3 border-t glass-dark shrink-0 relative z-10">
                 {(isBlockedByMe || isBlockingMe) ? (
                     <div className="flex flex-col items-center justify-center py-4 px-2 text-center animate-in fade-in slide-in-from-bottom-2 duration-300">
                         <div className="bg-secondary/50 rounded-2xl px-6 py-4 max-w-md w-full border border-border/50">
@@ -618,7 +668,7 @@ export default function ChatWindow() {
 
                             <Input
                                 value={newMessage}
-                                onChange={(e) => setNewMessage(e.target.value)}
+                                onChange={onInputChange}
                                 placeholder="Type a message..."
                                 className="flex-1 rounded-full bg-secondary/50 border-none focus-visible:ring-1"
                             />
