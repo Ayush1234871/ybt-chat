@@ -497,7 +497,7 @@ export default function ChatWindow() {
                             <div className="absolute right-0 mt-2 w-48 bg-card border rounded-xl shadow-xl z-50 py-1 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
                                 {otherParticipant && (
                                     <button
-                                        onClick={() => navigate(`/settings`)} // For now redirect to settings as a placeholder for profile
+                                        onClick={() => navigate(`/profile/${otherParticipant.id}`)}
                                         className="w-full flex items-center gap-3 px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors"
                                     >
                                         <User className="h-4 w-4 text-muted-foreground" />

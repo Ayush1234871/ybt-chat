@@ -13,12 +13,15 @@ import AppShell from './components/layout/AppShell'
 // Pages
 import SignIn from './pages/auth/SignIn'
 import SignUp from './pages/auth/SignUp'
+import ForgotPassword from './pages/auth/ForgotPassword'
+import ResetPassword from './pages/auth/ResetPassword'
 import Home from './pages/home/Home'
 import ChatWindow from './pages/home/ChatWindow'
 import Search from './pages/search/Search'
 import RandomChat from './pages/search/RandomChat'
 import StatusFeed from './pages/status/StatusFeed'
 import Settings from './pages/settings/Settings'
+import UserProfile from './pages/home/UserProfile'
 import AdminLogin from './pages/admin/AdminLogin'
 import Dashboard from './pages/admin/Dashboard'
 
@@ -158,6 +161,14 @@ function App() {
           path="/signup"
           element={user ? <Navigate to="/" replace /> : <SignUp />}
         />
+        <Route
+          path="/forgot-password"
+          element={user ? <Navigate to="/" replace /> : <ForgotPassword />}
+        />
+        <Route
+          path="/reset-password"
+          element={<ResetPassword />}
+        />
 
         {/* Admin Routes */}
         <Route path="/1234/admin" element={<AdminLogin />} />
@@ -171,6 +182,7 @@ function App() {
           <Route path="random-chat/:sessionId" element={<RandomChat />} />
           <Route path="status" element={<StatusFeed />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="profile/:userId" element={<UserProfile />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

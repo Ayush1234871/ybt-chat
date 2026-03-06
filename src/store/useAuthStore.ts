@@ -12,6 +12,7 @@ export interface UserProfile {
     last_seen: string
     is_banned: boolean
     status: string
+    about?: string
 }
 
 interface AuthState {

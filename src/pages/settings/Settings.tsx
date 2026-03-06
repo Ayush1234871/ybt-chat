@@ -15,6 +15,7 @@ export default function Settings() {
     const [editForm, setEditForm] = useState({
         full_name: profile?.full_name || '',
         username: profile?.username || '',
+        about: profile?.about || '',
     })
     const [isUpdating, setIsUpdating] = useState(false)
     const [isPrivate, setIsPrivate] = useState(profile?.is_private || false)
@@ -26,6 +27,7 @@ export default function Settings() {
             setEditForm({
                 full_name: profile.full_name || '',
                 username: profile.username || '',
+                about: profile.about || '',
             })
             setIsPrivate(profile.is_private || false)
         }
@@ -85,7 +87,10 @@ export default function Settings() {
 
         try {
             setIsUpdating(true)
-            const updateData: any = { full_name: editForm.full_name }
+            const updateData: any = {
+                full_name: editForm.full_name,
+                about: editForm.about
+            }
             if (editForm.username !== profile?.username) {
                 updateData.username = editForm.username
                 updateData.username_changed_at = new Date().toISOString()
@@ -219,6 +224,7 @@ export default function Settings() {
                             <div className="text-center sm:text-left">
                                 <h3 className="text-xl font-bold">{profile?.full_name || 'Loading...'}</h3>
                                 <p className="text-muted-foreground">@{profile?.username || ''}</p>
+                                <p className="text-sm text-muted-foreground mt-2 italic">"{profile?.about || 'Hey! I\'m using YBT Chat.'}"</p>
                                 <p className="text-sm text-muted-foreground mt-1">{user?.email}</p>
                             </div>
                         ) : (
@@ -248,10 +254,25 @@ export default function Settings() {
                                     )}
                                     {usernameError && <p className="text-xs text-destructive">{usernameError}</p>}
                                 </div>
+                                <div className="space-y-1">
+                                    <label className="text-sm font-medium">About</label>
+                                    <textarea
+                                        value={editForm.about}
+                                        onChange={e => setEditForm({ ...editForm, about: e.target.value })}
+                                        placeholder="Tell us about yourself..."
+                                        className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                        maxLength={150}
+                                    />
+                                    <p className="text-[10px] text-right text-muted-foreground">{editForm.about.length}/150</p>
+                                </div>
                                 <div className="flex gap-2 justify-end">
                                     <Button type="button" variant="outline" size="sm" onClick={() => {
                                         setIsEditingProfile(false)
-                                        setEditForm({ full_name: profile?.full_name || '', username: profile?.username || '' })
+                                        setEditForm({
+                                            full_name: profile?.full_name || '',
+                                            username: profile?.username || '',
+                                            about: profile?.about || ''
+                                        })
                                         setUsernameError(null)
                                     }}>Cancel</Button>
                                     <Button type="submit" size="sm" disabled={isUpdating}>{isUpdating ? 'Saving...' : 'Save'}</Button>
