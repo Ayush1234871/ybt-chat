@@ -7,6 +7,8 @@ export interface Message {
     type: string
     content: string
     image_url: string | null
+    voice_url?: string | null
+    reply_to?: string | null
     is_read: boolean
     created_at: string
 }

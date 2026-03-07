@@ -9,6 +9,17 @@ import { useAuthStore } from '../../store/useAuthStore'
 import type { Message } from '../../store/useChatStore'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
+import { VoiceRecorder } from '../../components/chat/VoiceRecorder'
+import { AudioPlayer } from '../../components/chat/AudioPlayer'
+import { ReactionPicker } from '../../components/chat/ReactionPicker'
+import { X, Reply } from 'lucide-react'
+
+interface Reaction {
+    id: string
+    message_id: string
+    user_id: string
+    reaction: string
+}
 
 export default function ChatWindow() {
     const { chatId } = useParams()
@@ -28,6 +39,11 @@ export default function ChatWindow() {
     const typingTimeoutRef = useRef<any>(null)
     const menuRef = useRef<HTMLDivElement>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
+
+    const [reactions, setReactions] = useState<Record<string, Reaction[]>>({})
+    const [activeReactionMessageId, setActiveReactionMessageId] = useState<string | null>(null)
+    const [isRecording, setIsRecording] = useState(false)
+    const [replyToMessage, setReplyToMessage] = useState<Message | null>(null)
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -122,6 +138,24 @@ export default function ChatWindow() {
                     }
                 }
 
+                // Load reactions for the loaded messages
+                if (msgData && msgData.length > 0) {
+                    const messageIds = msgData.map(m => m.id)
+                    const { data: reactData, error: reactError } = await supabase
+                        .from('message_reactions')
+                        .select('*')
+                        .in('message_id', messageIds)
+
+                    if (!reactError && reactData) {
+                        const reactionsMap: Record<string, Reaction[]> = {}
+                        reactData.forEach(r => {
+                            if (!reactionsMap[r.message_id]) reactionsMap[r.message_id] = []
+                            reactionsMap[r.message_id].push(r as Reaction)
+                        })
+                        setReactions(reactionsMap)
+                    }
+                }
+
 
                 // Mark unread messages as read
                 await supabase
@@ -176,13 +210,51 @@ export default function ChatWindow() {
                 schema: 'public',
                 table: 'blocked_users'
             }, () => {
+                // We'll reload the chat if block status changes
+                const loadChat = async () => {
+                    // reuse the load logic if needed or just reload the page
+                    window.location.reload()
+                }
                 loadChat()
+            })
+            .subscribe()
+
+        // Subscribe to reaction changes
+        const reactionChannel = supabase
+            .channel(`reactions:${chatId}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'message_reactions'
+            }, (payload) => {
+                console.log('Reaction Realtime event:', payload)
+                if (payload.eventType === 'INSERT') {
+                    const newReaction = payload.new as Reaction
+                    setReactions(prev => {
+                        const msgReactions = prev[newReaction.message_id] || []
+                        if (msgReactions.some(r => r.id === newReaction.id)) return prev
+                        return {
+                            ...prev,
+                            [newReaction.message_id]: [...msgReactions, newReaction]
+                        }
+                    })
+                } else if (payload.eventType === 'DELETE') {
+                    const oldReaction = payload.old as Reaction
+                    setReactions(prev => {
+                        const msgReactions = prev[oldReaction.message_id] || []
+                        return {
+                            ...prev,
+                            [oldReaction.message_id]: msgReactions.filter(r => r.id !== oldReaction.id)
+                        }
+                    })
+                }
             })
             .subscribe()
 
         return () => {
             supabase.removeChannel(msgChannel)
             supabase.removeChannel(blockChannel)
+            supabase.removeChannel(reactionChannel)
         }
     }, [chatId, user])
 
@@ -203,13 +275,125 @@ export default function ChatWindow() {
                     chat_id: chatId,
                     sender_id: user.id,
                     type: 'text',
-                    content: textToSend
+                    content: textToSend,
+                    reply_to: replyToMessage?.id || null
                 })
 
             if (error) throw error
+            setReplyToMessage(null) // Clear reply after sending
         } catch (error: any) {
             console.error('Failed to send message:', error)
             alert(`Failed to send message: ${error.message || 'Unknown error'}`)
+        }
+    }
+
+    const handleVoiceSend = async (file: File) => {
+        if (!user || !chatId) return
+
+        try {
+            const fileName = `${Date.now()}.webm`
+            const filePath = `${chatId}/${fileName}`
+
+            const { error: uploadError } = await supabase.storage
+                .from('voice-messages')
+                .upload(filePath, file)
+
+            if (uploadError) throw uploadError
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('voice-messages')
+                .getPublicUrl(filePath)
+
+            const { error: msgError } = await supabase
+                .from('messages')
+                .insert({
+                    chat_id: chatId,
+                    sender_id: user.id,
+                    type: 'voice',
+                    voice_url: publicUrl,
+                    reply_to: replyToMessage?.id || null
+                })
+
+            if (msgError) throw msgError
+            setReplyToMessage(null)
+        } catch (error: any) {
+            console.error('Failed to send voice message:', error)
+            alert(`Failed to send voice message: ${error.message}`)
+        }
+    }
+
+    const handleReactionSelect = async (messageId: string, emoji: string) => {
+        if (!user) return
+
+        try {
+            const existingReactions = reactions[messageId] || []
+            const myReaction = existingReactions.find(r => r.user_id === user.id && r.reaction === emoji)
+
+            if (myReaction) {
+                // Optimistic Update: remove reaction
+                setReactions(prev => ({
+                    ...prev,
+                    [messageId]: (prev[messageId] || []).filter(r => r.id !== myReaction.id)
+                }))
+
+                const { error } = await supabase
+                    .from('message_reactions')
+                    .delete()
+                    .eq('id', myReaction.id)
+
+                if (error) {
+                    // Rollback if error
+                    setReactions(prev => ({
+                        ...prev,
+                        [messageId]: [...(prev[messageId] || []), myReaction]
+                    }))
+                    throw error
+                }
+            } else {
+                // Temporary ID for optimistic update
+                const tempId = crypto.randomUUID()
+                const optimisticReaction: Reaction = {
+                    id: tempId,
+                    message_id: messageId,
+                    user_id: user.id,
+                    reaction: emoji
+                }
+
+                // Optimistic Update: add reaction
+                setReactions(prev => ({
+                    ...prev,
+                    [messageId]: [...(prev[messageId] || []), optimisticReaction]
+                }))
+
+                const { data, error } = await supabase
+                    .from('message_reactions')
+                    .insert({
+                        message_id: messageId,
+                        user_id: user.id,
+                        reaction: emoji
+                    })
+                    .select()
+                    .single()
+
+                if (error) {
+                    // Rollback if error
+                    setReactions(prev => ({
+                        ...prev,
+                        [messageId]: (prev[messageId] || []).filter(r => r.id !== tempId)
+                    }))
+                    throw error
+                }
+
+                // Replace optimistic reaction with real one
+                if (data) {
+                    setReactions(prev => ({
+                        ...prev,
+                        [messageId]: (prev[messageId] || []).map(r => r.id === tempId ? (data as Reaction) : r)
+                    }))
+                }
+            }
+        } catch (error: any) {
+            console.error('Failed to update reaction:', error)
         }
     }
 
@@ -241,10 +425,12 @@ export default function ChatWindow() {
                     chat_id: chatId,
                     sender_id: user.id,
                     type: 'image',
-                    image_url: publicUrl
+                    image_url: publicUrl,
+                    reply_to: replyToMessage?.id || null
                 })
 
             if (msgError) throw msgError
+            setReplyToMessage(null)
         } catch (error: any) {
             console.error('Failed to upload image:', error)
             alert(`Failed to upload image: ${error.message || 'Unknown error'}`)
@@ -560,14 +746,77 @@ export default function ChatWindow() {
                                 </div>
                             )}
                             <div
-                                className={`max-w-[75%] rounded-2xl px-4 py-2 ${isMine
+                                className={`max-w-[75%] rounded-2xl px-4 py-2 relative group ${isMine
                                     ? 'bg-primary text-primary-foreground rounded-tr-sm'
                                     : 'bg-secondary text-secondary-foreground rounded-tl-sm'
                                     }`}
+                                onContextMenu={(e) => {
+                                    e.preventDefault()
+                                    setActiveReactionMessageId(msg.id)
+                                }}
                             >
+                                {/* Reaction Picker Overlay */}
+                                {activeReactionMessageId === msg.id && (
+                                    <div className={`absolute bottom-full mb-2 z-50 ${isMine ? 'right-0' : 'left-0'}`}>
+                                        <ReactionPicker
+                                            onSelect={(emoji) => handleReactionSelect(msg.id, emoji)}
+                                            onClose={() => setActiveReactionMessageId(null)}
+                                        />
+                                    </div>
+                                )}
+
                                 {msg.type === 'text' && <p className="break-words">{msg.content}</p>}
                                 {msg.type === 'image' && msg.image_url && (
                                     <img src={msg.image_url} alt="Shared image" className="rounded-lg max-w-full h-auto mt-1" />
+                                )}
+                                {msg.type === 'voice' && msg.voice_url && (
+                                    <AudioPlayer url={msg.voice_url} isMine={isMine} />
+                                )}
+
+                                {/* Reply Context Rendering */}
+                                {msg.reply_to && (
+                                    <div className={`mb-2 p-2 rounded-lg text-xs border-l-4 ${isMine ? 'bg-primary-foreground/10 border-primary-foreground/30' : 'bg-secondary-foreground/10 border-secondary-foreground/30'}`}>
+                                        {(() => {
+                                            const repliedMsg = messages.find(m => m.id === msg.reply_to)
+                                            if (!repliedMsg) return <span className="italic opacity-70">Message not found</span>
+                                            return (
+                                                <div className="flex flex-col gap-0.5 max-w-[200px]">
+                                                    <span className="font-bold opacity-80">
+                                                        {repliedMsg.sender_id === user?.id ? 'You' : (otherParticipant?.full_name || 'User')}
+                                                    </span>
+                                                    <span className="truncate opacity-70">
+                                                        {repliedMsg.type === 'text' && repliedMsg.content}
+                                                        {repliedMsg.type === 'image' && '📷 Image'}
+                                                        {repliedMsg.type === 'voice' && '🎤 Voice message'}
+                                                    </span>
+                                                </div>
+                                            )
+                                        })()}
+                                    </div>
+                                )}
+
+                                {/* Reactions Display */}
+                                {reactions[msg.id]?.length > 0 && (
+                                    <div className={`flex flex-wrap gap-1 mt-2 -mb-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
+                                        {Object.entries(
+                                            reactions[msg.id].reduce((acc, r) => {
+                                                acc[r.reaction] = (acc[r.reaction] || 0) + 1
+                                                return acc
+                                            }, {} as Record<string, number>)
+                                        ).map(([emoji, count]) => (
+                                            <button
+                                                key={emoji}
+                                                onClick={() => handleReactionSelect(msg.id, emoji)}
+                                                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] border shadow-sm transition-all hover:scale-110 ${reactions[msg.id].some(r => r.user_id === user?.id && r.reaction === emoji)
+                                                    ? 'bg-primary/20 border-primary'
+                                                    : 'bg-background/50 border-border'
+                                                    }`}
+                                            >
+                                                <span>{emoji}</span>
+                                                <span className="font-bold opacity-70">{count}</span>
+                                            </button>
+                                        ))}
+                                    </div>
                                 )}
 
                                 <div className={`text-[10px] mt-1 flex items-center justify-end gap-1.5 ${isMine ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
@@ -577,7 +826,14 @@ export default function ChatWindow() {
                                             {msg.is_read ? '✓✓' : '✓'}
                                         </span>
                                     )}
-                                    <div className="flex items-center gap-1 ml-1">
+                                    <div className="flex items-center gap-1 ml-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={() => setActiveReactionMessageId(msg.id)}
+                                            className="hover:text-primary-foreground transition-colors p-0.5"
+                                            title="Add Reaction"
+                                        >
+                                            <Smile className="h-3.5 w-3.5" />
+                                        </button>
                                         {msg.type === 'text' && (
                                             <button
                                                 onClick={() => handleCopyMessage(msg.content || '')}
@@ -593,12 +849,20 @@ export default function ChatWindow() {
                                                 params.set('forwardContent', msg.content || '')
                                                 params.set('forwardType', msg.type)
                                                 if (msg.image_url) params.set('forwardImage', msg.image_url)
+                                                if (msg.voice_url) params.set('forwardVoice', msg.voice_url)
                                                 navigate(`/search?${params.toString()}`)
                                             }}
                                             className="hover:text-primary-foreground transition-colors p-0.5"
                                             title="Forward Message"
                                         >
                                             <Forward className="h-3 w-3" />
+                                        </button>
+                                        <button
+                                            onClick={() => setReplyToMessage(msg)}
+                                            className="hover:text-primary-foreground transition-colors p-0.5"
+                                            title="Reply"
+                                        >
+                                            <Reply className="h-3 w-3" />
                                         </button>
                                     </div>
                                 </div>
@@ -633,6 +897,32 @@ export default function ChatWindow() {
                     </div>
                 ) : (
                     <>
+                        {replyToMessage && (
+                            <div className="flex items-center justify-between p-2 mb-2 bg-muted/50 rounded-lg border border-border/50 animate-in slide-in-from-bottom-2 fade-in">
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <div className="w-1 h-8 bg-primary rounded-full shrink-0"></div>
+                                    <div className="min-w-0">
+                                        <p className="text-[10px] font-bold text-primary uppercase tracking-wider">
+                                            Replying to {replyToMessage.sender_id === user?.id ? 'yourself' : otherParticipant?.full_name}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground truncate italic">
+                                            {replyToMessage.type === 'text' && replyToMessage.content}
+                                            {replyToMessage.type === 'image' && '📷 Image'}
+                                            {replyToMessage.type === 'voice' && '🎤 Voice message'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 rounded-full hover:bg-muted"
+                                    onClick={() => setReplyToMessage(null)}
+                                >
+                                    <X className="h-3 w-3" />
+                                </Button>
+                            </div>
+                        )}
+
                         {showEmojiPicker && (
                             <div className="absolute bottom-full left-0 mb-2 shadow-xl z-50">
                                 <Picker
@@ -671,16 +961,26 @@ export default function ChatWindow() {
                                 onChange={onInputChange}
                                 placeholder="Type a message..."
                                 className="flex-1 rounded-full bg-secondary/50 border-none focus-visible:ring-1"
+                                disabled={isRecording}
                             />
 
-                            <Button
-                                type="submit"
-                                size="icon"
-                                className="rounded-full shrink-0 h-10 w-10"
-                                disabled={!newMessage.trim()}
-                            >
-                                <Send className="h-4 w-4 ml-1" />
-                            </Button>
+                            <div className="flex items-center">
+                                <VoiceRecorder
+                                    onStart={() => setIsRecording(true)}
+                                    onSend={handleVoiceSend}
+                                    onCancel={() => setIsRecording(false)}
+                                />
+                                {!isRecording && (
+                                    <Button
+                                        type="submit"
+                                        size="icon"
+                                        className="rounded-full shrink-0 h-10 w-10 ml-2"
+                                        disabled={!newMessage.trim()}
+                                    >
+                                        <Send className="h-4 w-4 ml-1" />
+                                    </Button>
+                                )}
+                            </div>
                         </form>
                     </>
                 )}

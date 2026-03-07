@@ -13,6 +13,7 @@ export default function Search() {
     const forwardContent = searchParams.get('forwardContent')
     const forwardType = searchParams.get('forwardType')
     const forwardImage = searchParams.get('forwardImage')
+    const forwardVoice = searchParams.get('forwardVoice')
 
     const [searchQuery, setSearchQuery] = useState('')
     const [searchResults, setSearchResults] = useState<any[]>([])
@@ -62,7 +63,7 @@ export default function Search() {
             if (!chatId) throw new Error('Failed to create or retrieve chat.')
 
             // 2. Handle forwarding if needed
-            if (forwardContent || forwardImage) {
+            if (forwardContent || forwardImage || forwardVoice) {
                 const { error: sendError } = await supabase
                     .from('messages')
                     .insert({
@@ -70,7 +71,8 @@ export default function Search() {
                         sender_id: user.id,
                         type: forwardType || 'text',
                         content: forwardContent || '',
-                        image_url: forwardImage || null
+                        image_url: forwardImage || null,
+                        voice_url: forwardVoice || null
                     })
 
                 if (sendError) throw sendError
