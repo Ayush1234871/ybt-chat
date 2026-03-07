@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, MessageSquare, UserX, CheckCircle, Shield, ShieldOff, Calendar, AtSign } from 'lucide-react'
+import { ArrowLeft, MessageSquare, UserX, CheckCircle, Shield, ShieldOff, Calendar, AtSign, X } from 'lucide-react'
 import { format } from 'date-fns'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/useAuthStore'
@@ -16,6 +16,7 @@ export default function UserProfile() {
     const [isBlockedByMe, setIsBlockedByMe] = useState(false)
     const [blockRecordId, setBlockRecordId] = useState<string | null>(null)
     const [isActionLoading, setIsActionLoading] = useState(false)
+    const [isZoomed, setIsZoomed] = useState(false)
 
     useEffect(() => {
         if (!userId || !currentUser) return
@@ -178,10 +179,14 @@ export default function UserProfile() {
                         <img
                             src={profile.avatar_url}
                             alt={profile.full_name}
-                            className="w-32 h-32 rounded-full object-cover border-4 border-background shadow-2xl bg-secondary"
+                            onClick={() => setIsZoomed(true)}
+                            className="w-32 h-32 rounded-full object-cover border-4 border-background shadow-2xl bg-secondary cursor-pointer hover:scale-105 transition-transform"
                         />
                     ) : (
-                        <div className="w-32 h-32 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-4xl border-4 border-background shadow-2xl">
+                        <div
+                            onClick={() => setIsZoomed(true)}
+                            className="w-32 h-32 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-4xl border-4 border-background shadow-2xl cursor-pointer hover:scale-105 transition-transform"
+                        >
                             {profile.full_name?.charAt(0) || '?'}
                         </div>
                     )}
@@ -282,6 +287,44 @@ export default function UserProfile() {
                     </div>
                 )}
             </div>
+
+            {/* DP Zoom Overlay */}
+            {isZoomed && (
+                <div
+                    className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
+                    onClick={() => setIsZoomed(false)}
+                >
+                    <button
+                        className="absolute top-6 right-6 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+                        onClick={() => setIsZoomed(false)}
+                    >
+                        <X className="h-6 w-6" />
+                    </button>
+
+                    <div className="max-w-full max-h-full overflow-hidden flex items-center justify-center">
+                        {profile.avatar_url ? (
+                            <img
+                                src={profile.avatar_url}
+                                alt={profile.full_name}
+                                className="max-w-[90vw] max-h-[80vh] object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-300"
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                        ) : (
+                            <div
+                                className="w-64 h-64 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-8xl border-4 border-white/20 shadow-2xl animate-in zoom-in-95 duration-300"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                {profile.full_name?.charAt(0) || '?'}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="absolute bottom-10 left-1/2 -translate-x-1/2 text-white text-center">
+                        <h3 className="text-xl font-bold">{profile.full_name}</h3>
+                        <p className="text-sm opacity-70">@{profile.username}</p>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
