@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import data from '@emoji-mart/data'
 import Picker from '@emoji-mart/react'
@@ -16,6 +16,7 @@ export default function StatusFeed() {
     const [bgColor, setBgColor] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+    const emojiPickerRef = useRef<HTMLDivElement>(null)
 
     const statusColors = [
         { id: 'blue', class: 'bg-blue-500' },
@@ -53,6 +54,21 @@ export default function StatusFeed() {
 
         fetchStatuses()
     }, [user])
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
+                setShowEmojiPicker(false)
+            }
+        }
+
+        if (showEmojiPicker) {
+            document.addEventListener('mousedown', handleClickOutside)
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside)
+        }
+    }, [showEmojiPicker])
 
     const handlePostStatus = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -167,7 +183,7 @@ export default function StatusFeed() {
                     </form>
 
                     {showEmojiPicker && (
-                        <div className="absolute top-16 left-0 z-50 shadow-xl">
+                        <div ref={emojiPickerRef} className="absolute top-16 left-0 z-50 shadow-xl">
                             <Picker
                                 data={data}
                                 onEmojiSelect={(emoji: any) => setNewStatus(prev => prev + emoji.native)}
