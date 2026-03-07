@@ -759,7 +759,7 @@ export default function ChatWindow() {
                                 {activeReactionMessageId === msg.id && (
                                     <div className={`absolute bottom-full mb-2 z-50 ${isMine ? 'right-0' : 'left-0'}`}>
                                         <ReactionPicker
-                                            onSelect={(emoji) => handleReactionSelect(msg.id, emoji)}
+                                            onSelect={(emoji: string) => handleReactionSelect(msg.id, emoji)}
                                             onClose={() => setActiveReactionMessageId(null)}
                                         />
                                     </div>
