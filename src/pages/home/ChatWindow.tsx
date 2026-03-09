@@ -39,6 +39,7 @@ export default function ChatWindow() {
     const typingTimeoutRef = useRef<any>(null)
     const menuRef = useRef<HTMLDivElement>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const messagesContainerRef = useRef<HTMLDivElement>(null)
     const isFirstLoad = useRef(true)
 
     const [reactions, setReactions] = useState<Record<string, Reaction[]>>({})
@@ -49,6 +50,10 @@ export default function ChatWindow() {
     const [chatWallpaper, setChatWallpaper] = useState<string | null>(null)
 
     const scrollToBottom = (instant = false) => {
+        if (messagesContainerRef.current) {
+            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+        }
+        // Also keep scrollIntoView as a fallback/secondary check
         if (messagesEndRef.current) {
             messagesEndRef.current.scrollIntoView({
                 behavior: instant ? 'auto' : 'smooth',
@@ -58,19 +63,19 @@ export default function ChatWindow() {
     }
 
     useEffect(() => {
-        if (messages.length > 0) {
+        if (!isLoading && messages.length > 0) {
             if (isFirstLoad.current) {
-                // Use a small timeout to ensure the DOM has rendered and settled
+                // Ensure the DOM has fully updated before scrolling
                 const timer = setTimeout(() => {
                     scrollToBottom(true)
                     isFirstLoad.current = false
-                }, 100)
+                }, 50)
                 return () => clearTimeout(timer)
             } else {
                 scrollToBottom(false)
             }
         }
-    }, [messages])
+    }, [messages, isLoading])
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -844,7 +849,10 @@ export default function ChatWindow() {
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 relative z-10">
+            <div
+                ref={messagesContainerRef}
+                className="flex-1 overflow-y-auto p-4 space-y-4 relative z-10"
+            >
                 {messages.map((msg, index) => {
                     const isMine = msg.sender_id === user?.id
                     const showTimestamp = index === 0 || new Date(msg.created_at).getTime() - new Date(messages[index - 1].created_at).getTime() > 300000 // 5 mins
@@ -878,7 +886,12 @@ export default function ChatWindow() {
 
                                 {msg.type === 'text' && <p className="break-words">{msg.content}</p>}
                                 {msg.type === 'image' && msg.image_url && (
-                                    <img src={msg.image_url} alt="Shared image" className="rounded-lg max-w-full h-auto mt-1" />
+                                    <img
+                                        src={msg.image_url}
+                                        alt="Shared image"
+                                        className="rounded-lg max-w-full h-auto mt-1"
+                                        onLoad={() => scrollToBottom(isFirstLoad.current)}
+                                    />
                                 )}
                                 {msg.type === 'voice' && msg.voice_url && (
                                     <AudioPlayer url={msg.voice_url} isMine={isMine} />
