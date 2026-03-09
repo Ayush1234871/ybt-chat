@@ -86,6 +86,8 @@ export default function ChatWindow() {
                 if (chatError) throw chatError
                 setChatType(chatData.type)
 
+                if (!user) return
+
                 // Load my participant status
                 const { data: myPart, error: myPartError } = await supabase
                     .from('chat_participants')
@@ -109,6 +111,7 @@ export default function ChatWindow() {
                 if (msgError) throw msgError
                 setMessages(msgData as Message[])
 
+                if (!user) return
                 // Load other participant details
                 const { data: participantData, error: pError } = await supabase
                     .from('chat_participants')
@@ -122,6 +125,7 @@ export default function ChatWindow() {
                     const otherUser: any = participantData.users
                     setOtherParticipant(otherUser)
 
+                    if (!user) return
                     // Check block status
                     const { data: blockData, error: blockError } = await supabase
                         .from('blocked_users')
@@ -202,7 +206,7 @@ export default function ChatWindow() {
                 })
 
                 // If received a message and chat is open, mark it as read and delivered
-                if (newMsg.sender_id !== user.id) {
+                if (user && newMsg.sender_id !== user.id) {
                     supabase
                         .from('messages')
                         .update({ is_read: true, is_delivered: true })
@@ -220,7 +224,7 @@ export default function ChatWindow() {
                 setMessages(prev => prev.map(m => m.id === updatedMsg.id ? updatedMsg : m))
             })
             .on('broadcast', { event: 'typing' }, ({ payload }) => {
-                if (payload.userId !== user.id) {
+                if (user && payload.userId !== user.id) {
                     setOtherIsTyping(payload.isTyping)
                 }
             })
@@ -803,6 +807,7 @@ export default function ChatWindow() {
                                             <button
                                                 key={i}
                                                 onClick={async () => {
+                                                    if (!user) return
                                                     const val = color || null
                                                     await supabase.from('chat_participants').update({ wallpaper_url: val }).eq('chat_id', chatId).eq('user_id', user.id)
                                                     setChatWallpaper(val)
