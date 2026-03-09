@@ -39,6 +39,7 @@ export default function ChatWindow() {
     const typingTimeoutRef = useRef<any>(null)
     const menuRef = useRef<HTMLDivElement>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const isFirstLoad = useRef(true)
 
     const [reactions, setReactions] = useState<Record<string, Reaction[]>>({})
     const [activeReactionMessageId, setActiveReactionMessageId] = useState<string | null>(null)
@@ -47,12 +48,28 @@ export default function ChatWindow() {
     const [editingMessage, setEditingMessage] = useState<Message | null>(null)
     const [chatWallpaper, setChatWallpaper] = useState<string | null>(null)
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const scrollToBottom = (instant = false) => {
+        if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({
+                behavior: instant ? 'auto' : 'smooth',
+                block: 'end'
+            })
+        }
     }
 
     useEffect(() => {
-        scrollToBottom()
+        if (messages.length > 0) {
+            if (isFirstLoad.current) {
+                // Use a small timeout to ensure the DOM has rendered and settled
+                const timer = setTimeout(() => {
+                    scrollToBottom(true)
+                    isFirstLoad.current = false
+                }, 100)
+                return () => clearTimeout(timer)
+            } else {
+                scrollToBottom(false)
+            }
+        }
     }, [messages])
 
     useEffect(() => {
