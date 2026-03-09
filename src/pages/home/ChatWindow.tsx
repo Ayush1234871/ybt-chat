@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
-import { ArrowLeft, Send, Image as ImageIcon, Smile, MoreVertical, Trash2, Eraser, UserX, Forward, Copy, User, CheckCircle } from 'lucide-react'
+import { ArrowLeft, Send, Image as ImageIcon, Smile, MoreVertical, Trash2, Eraser, UserX, Forward, Copy, User, CheckCircle, Check, CheckCheck, Pencil, Trash } from 'lucide-react'
 import data from '@emoji-mart/data'
 import Picker from '@emoji-mart/react'
 import { supabase } from '../../lib/supabase'
@@ -44,6 +44,8 @@ export default function ChatWindow() {
     const [activeReactionMessageId, setActiveReactionMessageId] = useState<string | null>(null)
     const [isRecording, setIsRecording] = useState(false)
     const [replyToMessage, setReplyToMessage] = useState<Message | null>(null)
+    const [editingMessage, setEditingMessage] = useState<Message | null>(null)
+    const [chatWallpaper, setChatWallpaper] = useState<string | null>(null)
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -87,13 +89,14 @@ export default function ChatWindow() {
                 // Load my participant status
                 const { data: myPart, error: myPartError } = await supabase
                     .from('chat_participants')
-                    .select('cleared_at')
+                    .select('cleared_at, wallpaper_url')
                     .eq('chat_id', chatId)
                     .eq('user_id', user.id)
                     .single()
 
                 if (myPartError) throw myPartError
                 const clearedAt = myPart?.cleared_at || '1970-01-01T00:00:00Z'
+                setChatWallpaper((myPart as any)?.wallpaper_url || null)
 
                 // Load messages (only since last clear)
                 const { data: msgData, error: msgError } = await supabase
@@ -157,13 +160,21 @@ export default function ChatWindow() {
                 }
 
 
-                // Mark unread messages as read
+                // Mark unread messages as read and delivered
                 await supabase
                     .from('messages')
-                    .update({ is_read: true })
+                    .update({ is_read: true, is_delivered: true })
                     .eq('chat_id', chatId)
                     .neq('sender_id', user.id)
                     .eq('is_read', false)
+
+                // Also mark as delivered if not already (even if read)
+                await supabase
+                    .from('messages')
+                    .update({ is_delivered: true })
+                    .eq('chat_id', chatId)
+                    .neq('sender_id', user.id)
+                    .eq('is_delivered', false)
 
             } catch (error) {
                 console.error('Failed to load chat:', error)
@@ -184,16 +195,29 @@ export default function ChatWindow() {
                 filter: `chat_id=eq.${chatId}`
             }, (payload) => {
                 const newMsg = payload.new as Message
-                setMessages(prev => [...prev, newMsg])
+                setMessages(prev => {
+                    // Avoid duplicates
+                    if (prev.some(m => m.id === newMsg.id)) return prev
+                    return [...prev, newMsg]
+                })
 
-                // If received a message and chat is open, mark it as read
+                // If received a message and chat is open, mark it as read and delivered
                 if (newMsg.sender_id !== user.id) {
                     supabase
                         .from('messages')
-                        .update({ is_read: true })
+                        .update({ is_read: true, is_delivered: true })
                         .eq('id', newMsg.id)
                         .then()
                 }
+            })
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'messages',
+                filter: `chat_id=eq.${chatId}`
+            }, (payload) => {
+                const updatedMsg = payload.new as Message
+                setMessages(prev => prev.map(m => m.id === updatedMsg.id ? updatedMsg : m))
             })
             .on('broadcast', { event: 'typing' }, ({ payload }) => {
                 if (payload.userId !== user.id) {
@@ -266,24 +290,57 @@ export default function ChatWindow() {
         const textToSend = newMessage.trim()
         setNewMessage('')
         setShowEmojiPicker(false)
-        handleTyping(false) // Stop typing on send
+        handleTyping(false)
 
         try {
-            const { error } = await supabase
-                .from('messages')
-                .insert({
-                    chat_id: chatId,
-                    sender_id: user.id,
-                    type: 'text',
-                    content: textToSend,
-                    reply_to: replyToMessage?.id || null
-                })
+            if (editingMessage) {
+                const { error } = await supabase
+                    .from('messages')
+                    .update({
+                        content: textToSend,
+                        is_edited: true
+                    })
+                    .eq('id', editingMessage.id)
 
-            if (error) throw error
-            setReplyToMessage(null) // Clear reply after sending
+                if (error) throw error
+                setEditingMessage(null)
+            } else {
+                const { error } = await supabase
+                    .from('messages')
+                    .insert({
+                        chat_id: chatId,
+                        sender_id: user.id,
+                        type: 'text',
+                        content: textToSend,
+                        reply_to: replyToMessage?.id || null,
+                        is_delivered: false,
+                        is_read: false
+                    })
+
+                if (error) throw error
+                setReplyToMessage(null)
+            }
         } catch (error: any) {
             console.error('Failed to send message:', error)
             alert(`Failed to send message: ${error.message || 'Unknown error'}`)
+        }
+    }
+
+    const handleDeleteForEveryone = async (messageId: string) => {
+        if (!confirm('Delete this message for everyone?')) return
+        try {
+            const { error } = await supabase
+                .from('messages')
+                .update({
+                    is_deleted: true,
+                    content: '🚫 This message was deleted',
+                    image_url: null,
+                    voice_url: null
+                })
+                .eq('id', messageId)
+            if (error) throw error
+        } catch (error: any) {
+            alert(`Failed to delete message: ${error.message}`)
         }
     }
 
@@ -611,13 +668,27 @@ export default function ChatWindow() {
     }
 
     return (
-        <div className="flex flex-col h-full bg-background mt-safe overflow-hidden relative">
+        <div className="flex flex-col h-full bg-transparent mt-safe overflow-hidden relative">
             {/* Background Glow */}
-            <div className="absolute top-0 right-0 w-[300px] h-[300px] bg-primary/5 rounded-full blur-[100px] -z-10 animate-pulse"></div>
-            <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-sky-500/5 rounded-full blur-[100px] -z-10"></div>
+            <div className="absolute top-0 right-0 w-[300px] h-[300px] bg-primary/5 rounded-full blur-[100px] z-5 animate-pulse"></div>
+            <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-sky-500/5 rounded-full blur-[100px] z-5"></div>
+
+            {/* Custom Wallpaper Layer */}
+            <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+                {chatWallpaper?.startsWith('#') ? (
+                    <div className="w-full h-full transition-colors duration-500" style={{ backgroundColor: chatWallpaper }}></div>
+                ) : chatWallpaper ? (
+                    <div
+                        className="w-full h-full bg-cover bg-center opacity-50 transition-all duration-500"
+                        style={{ backgroundImage: `url(${chatWallpaper})` }}
+                    ></div>
+                ) : (
+                    <div className="w-full h-full bg-background transition-colors duration-500"></div>
+                )}
+            </div>
 
             {/* Header */}
-            <div className="flex items-center p-4 border-b glass shrink-0 z-10">
+            <div className="flex items-center p-4 border-b glass shrink-0 relative z-30">
                 <Button variant="ghost" size="icon" className="mr-2" onClick={() => navigate(-1)}>
                     <ArrowLeft className="h-5 w-5" />
                 </Button>
@@ -725,7 +796,25 @@ export default function ChatWindow() {
                                         Block User
                                     </button>
                                 )}
-
+                                <div className="border-t py-2 px-4">
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Chat Wallpaper</p>
+                                    <div className="flex gap-2">
+                                        {['#0ea5e9', '#8b5cf6', '#10b981', '#ef4444', ''].map((color, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={async () => {
+                                                    const val = color || null
+                                                    await supabase.from('chat_participants').update({ wallpaper_url: val }).eq('chat_id', chatId).eq('user_id', user.id)
+                                                    setChatWallpaper(val)
+                                                }}
+                                                className={`w-6 h-6 rounded-full border border-border shadow-sm transform transition-transform hover:scale-110 ${!color ? 'bg-background flex items-center justify-center text-[10px]' : ''}`}
+                                                style={{ backgroundColor: color || 'transparent' }}
+                                            >
+                                                {!color && '✕'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -733,7 +822,7 @@ export default function ChatWindow() {
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 relative z-10">
                 {messages.map((msg, index) => {
                     const isMine = msg.sender_id === user?.id
                     const showTimestamp = index === 0 || new Date(msg.created_at).getTime() - new Date(messages[index - 1].created_at).getTime() > 300000 // 5 mins
@@ -820,50 +909,82 @@ export default function ChatWindow() {
                                 )}
 
                                 <div className={`text-[10px] mt-1 flex items-center justify-end gap-1.5 ${isMine ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                                    {msg.is_edited && !msg.is_deleted && <span className="text-[9px] opacity-70 italic">edited</span>}
                                     <span>{format(new Date(msg.created_at), 'HH:mm')}</span>
-                                    {isMine && (
-                                        <span>
-                                            {msg.is_read ? '✓✓' : '✓'}
+                                    {isMine && !msg.is_deleted && (
+                                        <span className="flex items-center">
+                                            {msg.is_read ? (
+                                                <CheckCheck className="h-3 w-3 text-sky-300" />
+                                            ) : msg.is_delivered ? (
+                                                <CheckCheck className="h-3 w-3" />
+                                            ) : (
+                                                <Check className="h-3 w-3" />
+                                            )}
                                         </span>
                                     )}
                                     <div className="flex items-center gap-1 ml-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button
-                                            onClick={() => setActiveReactionMessageId(msg.id)}
-                                            className="hover:text-primary-foreground transition-colors p-0.5"
-                                            title="Add Reaction"
-                                        >
-                                            <Smile className="h-3.5 w-3.5" />
-                                        </button>
-                                        {msg.type === 'text' && (
-                                            <button
-                                                onClick={() => handleCopyMessage(msg.content || '')}
-                                                className="hover:text-primary-foreground transition-colors p-0.5"
-                                                title="Copy Text"
-                                            >
-                                                <Copy className="h-3 w-3" />
-                                            </button>
+                                        {!msg.is_deleted && (
+                                            <>
+                                                <button
+                                                    onClick={() => setActiveReactionMessageId(msg.id)}
+                                                    className="hover:text-primary-foreground transition-colors p-0.5"
+                                                    title="Add Reaction"
+                                                >
+                                                    <Smile className="h-3.5 w-3.5" />
+                                                </button>
+                                                {msg.type === 'text' && (
+                                                    <button
+                                                        onClick={() => handleCopyMessage(msg.content || '')}
+                                                        className="hover:text-primary-foreground transition-colors p-0.5"
+                                                        title="Copy Text"
+                                                    >
+                                                        <Copy className="h-3 w-3" />
+                                                    </button>
+                                                )}
+                                                {isMine && msg.type === 'text' && (Date.now() - new Date(msg.created_at).getTime() < 15 * 60 * 1000) && (
+                                                    <button
+                                                        onClick={() => {
+                                                            setEditingMessage(msg)
+                                                            setNewMessage(msg.content)
+                                                        }}
+                                                        className="hover:text-primary-foreground transition-colors p-0.5"
+                                                        title="Edit Message"
+                                                    >
+                                                        <Pencil className="h-3 w-3" />
+                                                    </button>
+                                                )}
+                                                {isMine && (
+                                                    <button
+                                                        onClick={() => handleDeleteForEveryone(msg.id)}
+                                                        className="hover:text-primary-foreground transition-colors p-0.5"
+                                                        title="Delete for Everyone"
+                                                    >
+                                                        <Trash className="h-3 w-3 text-destructive-foreground hover:text-red-300" />
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => {
+                                                        const params = new URLSearchParams()
+                                                        params.set('forwardContent', msg.content || '')
+                                                        params.set('forwardType', msg.type)
+                                                        if (msg.image_url) params.set('forwardImage', msg.image_url)
+                                                        if (msg.voice_url) params.set('forwardVoice', msg.voice_url)
+                                                        navigate(`/search?${params.toString()}`)
+                                                    }}
+                                                    className="hover:text-primary-foreground transition-colors p-0.5"
+                                                    title="Forward Message"
+                                                >
+                                                    <Forward className="h-3 w-3" />
+                                                </button>
+                                                <button
+                                                    onClick={() => setReplyToMessage(msg)}
+                                                    className="hover:text-primary-foreground transition-colors p-0.5"
+                                                    title="Reply"
+                                                >
+                                                    <Reply className="h-3 w-3" />
+                                                </button>
+                                            </>
                                         )}
-                                        <button
-                                            onClick={() => {
-                                                const params = new URLSearchParams()
-                                                params.set('forwardContent', msg.content || '')
-                                                params.set('forwardType', msg.type)
-                                                if (msg.image_url) params.set('forwardImage', msg.image_url)
-                                                if (msg.voice_url) params.set('forwardVoice', msg.voice_url)
-                                                navigate(`/search?${params.toString()}`)
-                                            }}
-                                            className="hover:text-primary-foreground transition-colors p-0.5"
-                                            title="Forward Message"
-                                        >
-                                            <Forward className="h-3 w-3" />
-                                        </button>
-                                        <button
-                                            onClick={() => setReplyToMessage(msg)}
-                                            className="hover:text-primary-foreground transition-colors p-0.5"
-                                            title="Reply"
-                                        >
-                                            <Reply className="h-3 w-3" />
-                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -874,7 +995,7 @@ export default function ChatWindow() {
             </div>
 
             {/* Input Area or Block Message */}
-            <div className="p-3 border-t glass-dark shrink-0 relative z-10">
+            <div className="p-3 border-t glass-dark shrink-0 relative z-20">
                 {(isBlockedByMe || isBlockingMe) ? (
                     <div className="flex flex-col items-center justify-center py-4 px-2 text-center animate-in fade-in slide-in-from-bottom-2 duration-300">
                         <div className="bg-secondary/50 rounded-2xl px-6 py-4 max-w-md w-full border border-border/50">
@@ -897,13 +1018,35 @@ export default function ChatWindow() {
                     </div>
                 ) : (
                     <>
+                        {editingMessage && (
+                            <div className="flex items-center justify-between p-2 mb-2 bg-primary/10 rounded-lg border border-primary/30 animate-in slide-in-from-bottom-2 fade-in">
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <div className="w-1 h-8 bg-primary rounded-full shrink-0"></div>
+                                    <div className="min-w-0">
+                                        <p className="text-[10px] font-bold text-primary uppercase tracking-wider">Editing Message</p>
+                                        <p className="text-xs text-muted-foreground truncate italic">{editingMessage.content}</p>
+                                    </div>
+                                </div>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 rounded-full hover:bg-muted"
+                                    onClick={() => {
+                                        setEditingMessage(null)
+                                        setNewMessage('')
+                                    }}
+                                >
+                                    <X className="h-3 w-3" />
+                                </Button>
+                            </div>
+                        )}
                         {replyToMessage && (
                             <div className="flex items-center justify-between p-2 mb-2 bg-muted/50 rounded-lg border border-border/50 animate-in slide-in-from-bottom-2 fade-in">
                                 <div className="flex items-center gap-3 min-w-0">
                                     <div className="w-1 h-8 bg-primary rounded-full shrink-0"></div>
                                     <div className="min-w-0">
                                         <p className="text-[10px] font-bold text-primary uppercase tracking-wider">
-                                            Replying to {replyToMessage.sender_id === user?.id ? 'yourself' : otherParticipant?.full_name}
+                                            Replying to {(replyToMessage.sender_id === user?.id && user?.id) ? 'yourself' : otherParticipant?.full_name}
                                         </p>
                                         <p className="text-xs text-muted-foreground truncate italic">
                                             {replyToMessage.type === 'text' && replyToMessage.content}
@@ -985,7 +1128,6 @@ export default function ChatWindow() {
                     </>
                 )}
             </div>
-
         </div>
     )
 }

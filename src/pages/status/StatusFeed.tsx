@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import data from '@emoji-mart/data'
 import Picker from '@emoji-mart/react'
-import { Smile, Send } from 'lucide-react'
+import { Smile, Send, Eye, Users, Trash2, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/useAuthStore'
 import { Button } from '../../components/ui/Button'
@@ -204,60 +204,15 @@ export default function StatusFeed() {
                     </div>
                 ) : statuses.length > 0 ? (
                     <div className="space-y-4">
-                        {statuses.map(status => {
-                            const isMine = status.user_id === user?.id
-                            const userInfo = status.users
-                            const statusColor = statusColors.find(c => c.id === status.background_color)
-
-                            return (
-                                <div key={status.id} className={`flex gap-4 p-4 rounded-xl border shadow-sm transition-colors ${statusColor ? statusColor.class + ' !border-none text-white' : 'bg-card'}`}>
-                                    <div className="shrink-0 relative">
-                                        <div className={`w-12 h-12 rounded-full ring-2 ring-primary ring-offset-2 ring-offset-background p-[2px] ${statusColor ? 'ring-white/50 ring-offset-transparent' : ''}`}>
-                                            {userInfo?.avatar_url ? (
-                                                <img
-                                                    src={userInfo.avatar_url}
-                                                    className="w-full h-full rounded-full object-cover bg-secondary"
-                                                />
-                                            ) : (
-                                                <div className={`w-full h-full rounded-full flex items-center justify-center font-bold ${statusColor ? 'bg-white/20 text-white' : 'bg-primary/20 text-primary'}`}>
-                                                    {userInfo?.full_name?.charAt(0) || '?'}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex justify-between items-start mb-1">
-                                            <h3 className={`font-semibold truncate max-w-[70%] ${statusColor ? 'text-white' : 'text-foreground'}`}>
-                                                {isMine ? 'You' : userInfo?.full_name}
-                                            </h3>
-                                            <span className={`text-xs shrink-0 mt-1 ${statusColor ? 'text-white/70' : 'text-muted-foreground'}`}>
-                                                {formatDistanceToNow(new Date(status.created_at))} ago
-                                            </span>
-                                        </div>
-
-                                        <p className={`text-sm break-words whitespace-pre-wrap ${statusColor ? 'text-white text-lg font-medium leading-relaxed' : 'text-foreground'}`}>
-                                            {status.content}
-                                        </p>
-
-
-                                        {isMine && (
-                                            <div className="mt-2 flex justify-end">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className={`h-7 px-2 text-xs ${statusColor ? 'text-white hover:bg-white/20' : 'text-destructive'}`}
-                                                    onClick={() => handleDelete(status.id)}
-                                                >
-                                                    Delete
-                                                </Button>
-                                            </div>
-
-                                        )}
-                                    </div>
-                                </div>
-                            )
-                        })}
+                        {statuses.map(status => (
+                            <StatusItem
+                                key={status.id}
+                                status={status}
+                                userId={user?.id}
+                                onDelete={handleDelete}
+                                statusColors={statusColors}
+                            />
+                        ))}
                     </div>
                 ) : (
                     <div className="text-center p-8 text-muted-foreground">
@@ -265,6 +220,155 @@ export default function StatusFeed() {
                     </div>
                 )}
             </div>
+        </div>
+    )
+}
+
+function StatusItem({ status, userId, onDelete, statusColors }: any) {
+    const [viewCount, setViewCount] = useState(0)
+    const [showViewers, setShowViewers] = useState(false)
+    const [viewers, setViewers] = useState<any[]>([])
+    const isMine = status.user_id === userId
+    const statusColor = statusColors.find((c: any) => c.id === status.background_color)
+
+    useEffect(() => {
+        // Track view if not mine
+        if (!isMine && userId) {
+            supabase
+                .from('status_views')
+                .upsert({ status_id: status.id, viewer_id: userId }, { onConflict: 'status_id,viewer_id' })
+                .then(() => { })
+        }
+
+        // Fetch view count
+        const fetchViewCount = async () => {
+            const { count } = await supabase
+                .from('status_views')
+                .select('*', { count: 'exact', head: true })
+                .eq('status_id', status.id)
+            setViewCount(count || 0)
+        }
+        fetchViewCount()
+    }, [status.id, isMine, userId])
+
+    const fetchViewers = async () => {
+        const { data, error } = await supabase
+            .from('status_views')
+            .select('*, viewer:users!status_views_viewer_id_fkey(full_name, avatar_url, username)')
+            .eq('status_id', status.id)
+            .order('viewed_at', { ascending: false })
+
+        if (!error) setViewers(data || [])
+        setShowViewers(true)
+    }
+
+    const userInfo = status.users
+
+    return (
+        <div className={`relative flex gap-4 p-4 rounded-xl border shadow-sm transition-colors ${statusColor ? statusColor.class + ' !border-none text-white' : 'bg-card'}`}>
+            <div className="shrink-0 relative">
+                <div className={`w-12 h-12 rounded-full ring-2 ring-primary ring-offset-2 ring-offset-background p-[2px] ${statusColor ? 'ring-white/50 ring-offset-transparent' : ''}`}>
+                    {userInfo?.avatar_url ? (
+                        <img
+                            src={userInfo.avatar_url}
+                            className="w-full h-full rounded-full object-cover bg-secondary"
+                        />
+                    ) : (
+                        <div className={`w-full h-full rounded-full flex items-center justify-center font-bold ${statusColor ? 'bg-white/20 text-white' : 'bg-primary/20 text-primary'}`}>
+                            {userInfo?.full_name?.charAt(0) || '?'}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="flex-1 min-w-0">
+                <div className="flex justify-between items-start mb-1">
+                    <h3 className={`font-semibold truncate max-w-[70%] ${statusColor ? 'text-white' : 'text-foreground'}`}>
+                        {isMine ? 'You' : userInfo?.full_name}
+                    </h3>
+                    <span className={`text-xs shrink-0 mt-1 ${statusColor ? 'text-white/70' : 'text-muted-foreground'}`}>
+                        {formatDistanceToNow(new Date(status.created_at))} ago
+                    </span>
+                </div>
+
+                <p className={`text-sm break-words whitespace-pre-wrap ${statusColor ? 'text-white text-lg font-medium leading-relaxed' : 'text-foreground'}`}>
+                    {status.content}
+                </p>
+
+                <div className="mt-3 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        {isMine && (
+                            <button
+                                onClick={fetchViewers}
+                                className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${statusColor ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-secondary hover:bg-muted text-muted-foreground'}`}
+                            >
+                                <Eye className="h-3 w-3" />
+                                <span>{viewCount} views</span>
+                            </button>
+                        )}
+                        {!isMine && (
+                            <div className={`flex items-center gap-1 text-xs opacity-70 ${statusColor ? 'text-white' : 'text-muted-foreground'}`}>
+                                <Eye className="h-3 w-3" />
+                                <span>Seen</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {isMine && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className={`h-7 px-2 text-xs ${statusColor ? 'text-white hover:bg-white/20' : 'text-destructive'}`}
+                            onClick={() => onDelete(status.id)}
+                        >
+                            <Trash2 className="h-3.5 w-3.5 mr-1" />
+                            Delete
+                        </Button>
+                    )}
+                </div>
+            </div>
+
+            {/* Viewers Modal */}
+            {showViewers && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-card border w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="flex items-center justify-between p-4 border-b">
+                            <h3 className="font-bold flex items-center gap-2">
+                                <Users className="h-4 w-4 text-primary" />
+                                Viewed by ({viewers.length})
+                            </h3>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => setShowViewers(false)}>
+                                <X className="h-4 w-4" />
+                            </Button>
+                        </div>
+                        <div className="max-h-[300px] overflow-y-auto p-2">
+                            {viewers.length > 0 ? viewers.map((view) => (
+                                <div key={view.id} className="flex items-center gap-3 p-2 hover:bg-secondary/50 rounded-xl transition-colors">
+                                    <div className="w-10 h-10 rounded-full overflow-hidden bg-secondary shrink-0">
+                                        {view.viewer?.avatar_url ? (
+                                            <img src={view.viewer.avatar_url} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center font-bold text-primary">
+                                                {view.viewer?.full_name?.charAt(0)}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="font-medium text-sm truncate">{view.viewer?.full_name}</p>
+                                        <p className="text-[10px] text-muted-foreground">
+                                            {formatDistanceToNow(new Date(view.viewed_at))} ago
+                                        </p>
+                                    </div>
+                                </div>
+                            )) : (
+                                <div className="py-8 text-center text-muted-foreground text-sm">
+                                    No views yet.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

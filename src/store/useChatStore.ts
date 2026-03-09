@@ -10,6 +10,9 @@ export interface Message {
     voice_url?: string | null
     reply_to?: string | null
     is_read: boolean
+    is_delivered: boolean
+    is_edited: boolean
+    is_deleted: boolean
     created_at: string
 }
 
