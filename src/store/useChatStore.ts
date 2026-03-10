@@ -8,6 +8,9 @@ export interface Message {
     content: string
     image_url: string | null
     voice_url?: string | null
+    file_url?: string | null
+    file_name?: string | null
+    file_size?: number | null
     reply_to?: string | null
     is_read: boolean
     is_delivered: boolean

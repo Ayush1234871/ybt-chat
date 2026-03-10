@@ -12,7 +12,8 @@ import { Input } from '../../components/ui/Input'
 import { VoiceRecorder } from '../../components/chat/VoiceRecorder'
 import { AudioPlayer } from '../../components/chat/AudioPlayer'
 import { ReactionPicker } from '../../components/chat/ReactionPicker'
-import { X, Reply } from 'lucide-react'
+import { FileMessage } from '../../components/chat/FileMessage'
+import { X, Reply, Paperclip } from 'lucide-react'
 
 interface Reaction {
     id: string
@@ -520,6 +521,48 @@ export default function ChatWindow() {
         }
     }
 
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file || !user || !chatId) return
+
+        try {
+            const fileName = file.name
+            const fileSize = file.size
+            const storagePath = `${chatId}/${Date.now()}_${fileName}`
+
+            // Upload to chat-files bucket
+            const { error: uploadError } = await supabase.storage
+                .from('chat-files')
+                .upload(storagePath, file)
+
+            if (uploadError) throw uploadError
+
+            // Get public URL
+            const { data: { publicUrl } } = supabase.storage
+                .from('chat-files')
+                .getPublicUrl(storagePath)
+
+            // Send message with file metadata
+            const { error: msgError } = await supabase
+                .from('messages')
+                .insert({
+                    chat_id: chatId,
+                    sender_id: user.id,
+                    type: 'file',
+                    file_url: publicUrl,
+                    file_name: fileName,
+                    file_size: fileSize,
+                    reply_to: replyToMessage?.id || null
+                })
+
+            if (msgError) throw msgError
+            setReplyToMessage(null)
+        } catch (error: any) {
+            console.error('Failed to upload file:', error)
+            alert(`Failed to upload file: ${error.message}`)
+        }
+    }
+
     const handleEndChat = async () => {
         if (!chatId || !user) return
         if (!confirm('Are you sure you want to end this random chat?')) return
@@ -896,6 +939,13 @@ export default function ChatWindow() {
                                 {msg.type === 'voice' && msg.voice_url && (
                                     <AudioPlayer url={msg.voice_url} isMine={isMine} />
                                 )}
+                                {msg.type === 'file' && msg.file_url && msg.file_name && (
+                                    <FileMessage
+                                        fileUrl={msg.file_url}
+                                        fileName={msg.file_name}
+                                        fileSize={msg.file_size || 0}
+                                    />
+                                )}
 
                                 {/* Reply Context Rendering */}
                                 {msg.reply_to && (
@@ -1131,6 +1181,17 @@ export default function ChatWindow() {
                                 />
                                 <div className="p-2 text-muted-foreground hover:bg-accent rounded-md transition-colors">
                                     <ImageIcon className="h-5 w-5" />
+                                </div>
+                            </label>
+
+                            <label className="cursor-pointer shrink-0">
+                                <input
+                                    type="file"
+                                    className="hidden"
+                                    onChange={handleFileUpload}
+                                />
+                                <div className="p-2 text-muted-foreground hover:bg-accent rounded-md transition-colors">
+                                    <Paperclip className="h-5 w-5" />
                                 </div>
                             </label>
 

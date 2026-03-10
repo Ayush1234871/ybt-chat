@@ -1,4 +1,4 @@
-import { Outlet, Navigate } from 'react-router-dom'
+import { Outlet, Navigate, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuthStore } from '../../store/useAuthStore'
 import { useThemeStore } from '../../store/useThemeStore'
@@ -8,6 +8,7 @@ import BottomNav from './BottomNav'
 export default function AppShell() {
     const { session } = useAuthStore()
     const { theme } = useThemeStore()
+    const location = useLocation()
 
     // Apply theme class whenever it changes (also handled in App.tsx for initial load)
     useEffect(() => {
@@ -26,6 +27,10 @@ export default function AppShell() {
         return <Navigate to="/signin" replace />
     }
 
+    // Hide bottom navigation on mobile when in a chat window
+    const isChatPage = location.pathname.startsWith('/chat/') ||
+        location.pathname.startsWith('/random-chat/')
+
     return (
         <div className="flex h-screen w-full bg-background overflow-hidden relative">
             {/* Desktop Sidebar */}
@@ -34,14 +39,16 @@ export default function AppShell() {
             </div>
 
             {/* Main Content Area */}
-            <main className="flex-1 flex flex-col h-full relative overflow-hidden pb-16 md:pb-0">
+            <main className={`flex-1 flex flex-col h-full relative overflow-hidden ${isChatPage ? 'pb-0' : 'pb-16'} md:pb-0`}>
                 <Outlet />
             </main>
 
             {/* Mobile Bottom Navigation */}
-            <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 border-t border-border glass-dark backdrop-blur-xl z-50">
-                <BottomNav />
-            </div>
+            {!isChatPage && (
+                <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 border-t border-border glass-dark backdrop-blur-xl z-50">
+                    <BottomNav />
+                </div>
+            )}
         </div>
     )
 }
